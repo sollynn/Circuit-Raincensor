@@ -1,35 +1,61 @@
 #include <ESP32Servo.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-//line 57 132 159
-//=================================================================================================
+#define  PIN2 2
+//จุดเพิ่มline  57 132 159
+//ส่วนที่ต้องแก้ แยก automode manual mode , add last_window state
 WiFiClient   espClient;                     //คำสั่งจาก library
-PubSubClient client(espClient);             //สร้างออปเจ็ค สำหรับเชื่อมต่อ mqtt
-//=================================================================================================
+PubSubClient client(espClient);   
+int Mode;          //สร้างออปเจ็ค สำหรับเชื่อมต่อ mqtt
 const char* ssid = "ณช";                   //wifi name
 const char* password = "ihaveonswurdad";           //wifi password
-//=================================================================================================
 const char* mqtt_broker = "broker.emqx.io"; // "192.168.43.136";// //"broker.emqx.io";    //IP mqtt server
 const char* mqtt_username = "ihatemonday";      //mqtt username
 const char* mqtt_password = "ihatemonday";      //mqtt password
 const int   mqtt_port = 1883 ;         //port mqtt server
-//=================================================================================================
-//=================================================================================================
 //Web Define
-int windwow = 1 ; //(เปิด)
-const char *topic_humidity ="Humidity";
-const char *topic_rain ="Rain/State"; //บอกสถานะฝนตก
-const char *topic_window ="Window/button";//ปุ่มเปิดปิดหน้าต่าง
-const char *topic_windowstate = "Window/State";//สถานะหน้าต่าง
-//=================================================================================================
+int window = 1 ; //(เปิด)
+/*
+bool manualMode = 0;       // โหมด Manual เปิดจากปุ่ม
+bool manualOpenCommand = 0; // คำสั่งเปิด/ปิดจากปุ่ม (1 = เปิด, 0 = ปิด)
+bool autoOpenState = 0;     // สถานะเปิดอัตโนมัติจากเซ็นเซอร์
+*/
+const char *topic_humidity ="topic_humidity"; //บอกระดับความชื้น level chart
+const char *topic_rain ="Rain/State"; //บอกสถานะฝนตก text
+const char *topic_window ="Window/button";//ปุ่มเปิดปิดหน้าต่าง switch Button
+const char *topic_windowstate = "Window/State";//สถานะหน้าต่าง text 
 Servo myServo;
 int servoPin = 13;  // ขาที่เชื่อมต่อกับ Servo
 #define HUSENSOR_PIN 34  // ขา HR202L (ความชื้น)
 #define RAINSENSOR_PIN 4  // ขาวัดฝน
+bool lastcallback = 1;
+bool openwindow = 1;
 
-bool openwindow = true;
-void setup_wifi() {   //ฟังก์ชั่นเชื่อมต่อwifi
-  delay(10);
+void closethewindow(){
+        digitalWrite(PIN2,LOW);
+        for (int pos = 0; pos <= 70; pos += 2) {  // ขยับทีละ 2° ให้การเคลื่อนที่ราบรื่นขึ้น
+            myServo.write(pos);
+            Serial.print("Moving to: ");
+            Serial.println(pos);
+            delay(40);  // ลดการหน่วงเวลาทำให้การหมุนละเอียดขึ้น
+        lastcallback = 1;
+}
+}
+
+void openthewindow(){
+        digitalWrite(PIN2,HIGH);
+        for (int pos = 70; pos >= 0; pos -= 2) {  // ขยับทีละ 2° ให้การเคลื่อนที่ราบรื่นขึ้น
+            myServo.write(pos);
+            Serial.print("Moving to: ");
+            Serial.println(pos);
+            delay(40);  // ลดการหน่วงเวลาทำให้การหมุนละเอียดขึ้น
+        lastcallback = 0;
+}
+}
+void setup() { 
+    pinMode(PIN2,OUTPUT);
+    Serial.begin(115200);
+      //ฟังก์ชั่นเชื่อมต่อwifi
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
@@ -44,31 +70,9 @@ void setup_wifi() {   //ฟังก์ชั่นเชื่อมต่อwi
   Serial.println("IP address: ");
  
   Serial.println(WiFi.localIP());
-}
-
-void callback(char *topic, byte *payload, unsigned int length) {  //ฟังก์ชั่นsubscribe
-  Serial.print("Message arrived in topic: ");
-  Serial.println(topic);
-  Serial.print("Message:");
-  for (int i = 0; i < length; i++){          //รับค่าโดยการปริ้นอักษรที่ละตัวออกมา เป็น char
-    Serial.print((char) payload[i]);
-    Serial.println();
-    Serial.println("-----------------------");
-///รับสถานะกดเปิด 
-    if((char)payload[0]=='1'){
-    openwindow = true;
-    client.publish(topic_window, "1");
-    client.publish(topic_windowstate,String("Window open").c_str());
- }
- else if ((char)payload[i]=='0'){
- openwindow = false;
-  client.publish(topic_window, "0");
-  client.publish(topic_windowstate, "Window close");
-}}}
-
-void reconnect() {  //ฟังก์ชั่นเชื่อมต่อmqtt
+     //ฟังก์ชั่นเชื่อมต่อmqtt
   client.setServer(mqtt_broker, mqtt_port);   //เชื่อมต่อmqtt
-  client.setCallback(callback);               //เลือกฟังก์ชั่นsubscribe
+  client.setCallback(Callback);               //เลือกฟังก์ชั่นsubscribe
   while (!client.connected())                 //รอจนกว่าจะเชื่อมต่อmqttสำเร็จ
   {
     String client_id = "mqttx_36342178";
@@ -79,31 +83,57 @@ void reconnect() {  //ฟังก์ชั่นเชื่อมต่อmqtt
     else {
       Serial.print("failed with state ");
       Serial.print(client.state());
-      delay(2000);
+      delay(500);
     }
     
   }
-}
-
-void setup() { 
-    Serial.begin(115200);
-    setup_wifi(); //เชื่อมต่อwifi
-    reconnect();  //เชื่อมต่อmqtt
-    client.subscribe("Topic");  //กำหนด topic ที่จะ subscribe
-    client.publish("Topic", "kak"); //กำหนด topic ที่จะ publish และ valu
+    client.subscribe(topic_window);  //กำหนด topic ที่จะ subscribe
+    
+    client.publish("topic_window", "kak"); //กำหนด topic ที่จะ publish และ valu
     pinMode(RAINSENSOR_PIN, INPUT); //water detect
     myServo.attach(servoPin);
     myServo.write(0);
+
 }
 
-// ฟังก์ชันอ่านค่าความชื้นแบบเฉลี่ย (Moving Average)
+void Callback(char *topic_window, byte *payload, unsigned int length) {  //ฟังก์ชั่นsubscribe
+  String string;
+ // Serial.print("Message arrived in topic: ");
+ // Serial.println(topic);
+ // Serial.print("Message:");
+
+  for (int i = 0; i < length; i++){          //รับค่าโดยการปริ้นอักษรที่ละตัวออกมา เป็น char
+    Serial.print((char) payload[i]);
+    Serial.println();
+    Serial.println("-----------------------");
+    string+= ((char)payload[i]);
+///รับสถานะกดเปิด 
+
+    if((char)payload[i]=='1'){
+    openwindow = 1;
+    if(lastcallback){
+    openthewindow();
+    }
+    client.publish(topic_window, "1");
+    client.publish(topic_windowstate, "Window open");
+
+    Serial.println("OPEN WINDOW");
+ }
+    else if ((char)payload[i]=='0'){
+    openwindow = 0;
+    if(!lastcallback){
+    closethewindow();
+    }
+    client.publish(topic_windowstate, "Window close");
+    Serial.println("CLOSE WINDOW");
+}}}
 float readHumidity() {
     int numSamples = 10;  // อ่าน 10 ครั้ง
     int total = 0;
     
     for (int i = 0; i < numSamples; i++) {
         total += analogRead(HUSENSOR_PIN);
-        delay(10);  // หน่วงเวลาสั้น ๆ
+        delay(250);  // หน่วงเวลาสั้น ๆ
     }
 
     float avgValue = total / numSamples;  // คำนวณค่าเฉลี่ย
@@ -114,8 +144,10 @@ float readHumidity() {
     return humidityPercent;
 }
 
+
 void loop() {
     client.loop();
+    
     int rainsensorValue = digitalRead(RAINSENSOR_PIN);
     float humidityPercent = readHumidity();  // อ่านค่าความชื้นแบบละเอียด
     int humidity_level;
@@ -124,13 +156,8 @@ void loop() {
     Serial.println("%");
 
     Serial.print("Rain Sensor: ");
-    Serial.println(rainsensorValue != LOW ? "No Rain" : "Raining");
-    if (rainsensorValue != LOW ){ //display on node-red for raining status
-     client.publish(topic_rain,"Raining");
-    }
-    else{
-      client.publish(topic_rain,"Not Raining");
-    }
+    Serial.println(rainsensorValue != LOW ? "non water detected" : "water detected");
+   
     if (humidityPercent < 20){
     humidity_level = 1;
 }
@@ -146,7 +173,14 @@ else if (humidityPercent >= 60 && humidityPercent < 80) {
 else {
     humidity_level = 5;
 }
-
+ if ((rainsensorValue = !LOW )&& (humidity_level<=4)){ //display on node-red for raining status
+     client.publish(topic_rain,"Not Raining");
+     Serial.println("Not Raining");
+    }
+    else{
+      client.publish(topic_rain,"Raining");
+      Serial.println("Raining");
+    }
 
     client.publish(topic_humidity,String(humidity_level).c_str()); //แสดงระดับความชื้น บน nodeRed
     // เงื่อนไขเปิดหน้าต่าง: ความชื้น > 80% และไม่มีฝนตก
@@ -157,14 +191,19 @@ else {
             Serial.println(pos);
             delay(40);  // ลดการหน่วงเวลาทำให้การหมุนละเอียดขึ้น
         }
-        openwindow = false;
+        openwindow = 0;
     }
-    if (openwindow == false){
-      client.publish(topic_windowstate,String("Window close").c_str());
+  
+
+static bool lastWindowState = 0;
+if (openwindow != lastWindowState) {
+    lastWindowState = openwindow;
+    if (openwindow) {
+        client.publish(topic_windowstate, "Window open");
+    } else {
+        client.publish(topic_windowstate, "Window close");
     }
-    else {client.publish(topic_windowstate,String("Window open").c_str());}
-    delay(1000);  // อ่านค่าทุก 1 วินาที
-}
+}}
 /*
 ส่วนที่ส่งค่าให้ Node Red: ค่า level ความชื้น ,การตรวจจับฝน
 ส่วนที่รับค่าจาก node red : คนกดปุ่มเปิดปิดหน้าต่าง
