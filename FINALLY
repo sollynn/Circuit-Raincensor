@@ -1,14 +1,15 @@
+
 #include <ESP32Servo.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-#define  PIN2 2
+#define  PIN_LED 2 // led define wifi status
 //จุดเพิ่มline  57 132 159
 //ส่วนที่ต้องแก้ แยก automode manual mode , add last_window state
 WiFiClient   espClient;                     //คำสั่งจาก library
 PubSubClient client(espClient);   
 int Mode;          //สร้างออปเจ็ค สำหรับเชื่อมต่อ mqtt
 const char* ssid = "ณช";                   //wifi name
-const char *topic_windowstate_switch ="windowstate_auto";
+
 const char* password = "ihaveonswurdad";           //wifi password
 const char* mqtt_broker = "broker.emqx.io"; // "192.168.43.136";// //"broker.emqx.io";    //IP mqtt server
 const char* mqtt_username = "ihatemonday";      //mqtt username
@@ -16,23 +17,19 @@ const char* mqtt_password = "ihatemonday";      //mqtt password
 const int   mqtt_port = 1883 ;         //port mqtt server
 //Web Define
 int window = 1 ; //(เปิด)
-/*
-bool manualMode = 0;       // โหมด Manual เปิดจากปุ่ม
-bool manualOpenCommand = 0; // คำสั่งเปิด/ปิดจากปุ่ม (1 = เปิด, 0 = ปิด)
-bool autoOpenState = 0;     // สถานะเปิดอัตโนมัติจากเซ็นเซอร์
-*/
+const char *topic_mode ="mode" ;// switch mannual or auto mode
+const char *topic_windowstate_switch ="windowstate_auto"; //ส่งค่าswitch auto 
 const char *topic_humidity ="topic_humidity"; //บอกระดับความชื้น level chart
 const char *topic_rain ="Rain/State"; //บอกสถานะฝนตก text
-const char *topic_window ="Window/button";//ปุ่มเปิดปิดหน้าต่าง switch Button
+const char *topic_window ="Window/button";//ปุ่มเปิดปิดหน้าต่าง switch Button output รับค่า
 const char *topic_windowstate = "Window/State";//สถานะหน้าต่าง text 
 Servo myServo;
 int servoPin = 13;  // ขาที่เชื่อมต่อกับ Servo
 #define HUSENSOR_PIN 34  // ขา HR202L (ความชื้น)
 #define RAINSENSOR_PIN 4  // ขาวัดฝน
 bool openwindow = 1;
-
 int segPins[] = {12, 14, 27, 26, 25, 33, 32,35};
-
+int mode =1 ;
 // ข้อมูลเลข 1-5 (Common Cathode)
 byte numberBits[] = {
   B01100000,  // 1
@@ -44,7 +41,7 @@ byte numberBits[] = {
 
 
 void closethewindow(){
-        digitalWrite(PIN2,LOW);
+        
         client.publish(topic_windowstate,String(0).c_str()); //close auto and chang state switch
         for (int pos = 0; pos <= 70; pos += 2) {  // ขยับทีละ 2° ให้การเคลื่อนที่ราบรื่นขึ้น
             myServo.write(pos);
@@ -56,7 +53,7 @@ void closethewindow(){
 }
 
 void openthewindow(){
-        digitalWrite(PIN2,HIGH);
+        
         client.publish(topic_windowstate,String(1).c_str()); //close auto and chang state switch
         for (int pos = 70; pos >= 0; pos -= 2) {  // ขยับทีละ 2° ให้การเคลื่อนที่ราบรื่นขึ้น
             myServo.write(pos);
@@ -71,7 +68,7 @@ void setup() {
     pinMode(segPins[i], OUTPUT);
   }
 
-    pinMode(PIN2,OUTPUT);
+    pinMode(PIN_LED,OUTPUT);
     Serial.begin(115200);
       //ฟังก์ชั่นเชื่อมต่อwifi
   Serial.println();
@@ -80,15 +77,18 @@ void setup() {
   WiFi.mode(WIFI_STA);                      //เลือกโหมดรับ wifi
   WiFi.begin(ssid, password);               //เชื่อมต่อ wifi
   while (WiFi.status() != WL_CONNECTED)     //รอจนกว่าจะเชื่อมต่อwifiสำเร็จ
-  {
+  { 
+    digitalWrite(PIN_LED , HIGH);
     delay(500);
     Serial.println("Connecting to WiFi...");
   }
+   digitalWrite(PIN_LED , LOW);
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
  
   Serial.println(WiFi.localIP());
      //ฟังก์ชั่นเชื่อมต่อmqtt
+
   client.setServer(mqtt_broker, mqtt_port);   //เชื่อมต่อmqtt
   client.publish(topic_windowstate,String(0).c_str()); //close auto and chang state switch
   client.setCallback(Callback);               //เลือกฟังก์ชั่นsubscribe
@@ -127,17 +127,22 @@ void Callback(char *topic_window, byte *payload, unsigned int length) {  //ฟ�
     Serial.println("-----------------------");
     string+= ((char)payload[i]);
 ///รับสถานะกดเปิด 
-
-    if((char)payload[i]=='1'){
+  if((char)payload[i] == 'M'){
+    mode = 0;
+  }
+  else if ((char)payload[i]== 'A'){
+    mode = 1;
+  }
+    if(((char)payload[i]=='1') && (!openwindow)){
     openwindow = 1;
     
     openthewindow();
     
-    client.publish(topic_window, "1");
+   //ลองลบ client.publish(topic_window, "1");
     client.publish(topic_windowstate, "Window open");
     Serial.println("OPEN WINDOW");
  }
-    else if ((char)payload[i]=='0'){
+    else if (((char)payload[i]=='0') && (openwindow)){
     openwindow = 0;
     
     closethewindow();
@@ -171,7 +176,7 @@ void sevensegment(int num){
 void loop() {
     client.loop();
     
-    int rainsensorValue = digitalRead(RAINSENSOR_PIN);
+    int rainsensorValue = analogRead(RAINSENSOR_PIN);
     float humidityPercent = readHumidity();  // อ่านค่าความชื้นแบบละเอียด
     int humidity_level;
     Serial.print("Humidity: ");
@@ -197,19 +202,19 @@ else {
     humidity_level = 5;
 }
 sevensegment(humidity_level-1);
-
- if ((rainsensorValue != LOW )&& (humidity_level<=4)){ //display on node-red for raining status
-     client.publish(topic_rain,"Not Raining");
-     Serial.println("Not Raining");
-    }
-    else{
+if ((rainsensorValue == LOW) && (humidity_level>=4)) {
       client.publish(topic_rain,"Raining");
       Serial.println("Raining");
     }
+ else if ((rainsensorValue != LOW ) || (humidity_level<4)){ //display on node-red for raining status
+     client.publish(topic_rain,"Not Raining");
+     Serial.println("Not Raining");
+    }
+    
 
     client.publish(topic_humidity,String(humidity_level).c_str()); //แสดงระดับความชื้น บน nodeRed
     // เงื่อนไขเปิดหน้าต่าง: ความชื้น > 80% และไม่มีฝนตก
-    if ((humidityPercent > 80) && (rainsensorValue == LOW) && (openwindow)) {
+    if ((humidity_level>4) && (rainsensorValue == LOW) && (openwindow) &&(mode)) {
         for (int pos = 0; pos <= 70; pos += 2) {  // ขยับทีละ 2° ให้การเคลื่อนที่ราบรื่นขึ้น
             myServo.write(pos);
             Serial.print("Moving to: ");
@@ -230,7 +235,3 @@ if (openwindow != lastWindowState) {
         client.publish(topic_windowstate, "Window close");
     }
 }}
-/*
-ส่วนที่ส่งค่าให้ Node Red: ค่า level ความชื้น ,การตรวจจับฝน
-ส่วนที่รับค่าจาก node red : คนกดปุ่มเปิดปิดหน้าต่าง
-*/
