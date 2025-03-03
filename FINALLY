@@ -2,7 +2,7 @@
 #include <ESP32Servo.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-#define  PIN_LED 2 // led define wifi status
+#define  PIN_LED 36 // led define wifi status
 //จุดเพิ่มline  57 132 159
 //ส่วนที่ต้องแก้ แยก automode manual mode , add last_window state
 WiFiClient   espClient;                     //คำสั่งจาก library
@@ -26,9 +26,9 @@ const char *topic_windowstate = "Window/State";//สถานะหน้าต�
 Servo myServo;
 int servoPin = 13;  // ขาที่เชื่อมต่อกับ Servo
 #define HUSENSOR_PIN 34  // ขา HR202L (ความชื้น)
-#define RAINSENSOR_PIN 4  // ขาวัดฝน
+#define RAINSENSOR_PIN 35  // ขาวัดฝน
 bool openwindow = 1;
-int segPins[] = {12, 14, 27, 26, 25, 33, 32,35};
+int segPins[] = {12, 14, 27, 26, 25, 33, 32,4};
 int mode =1 ;
 // ข้อมูลเลข 1-5 (Common Cathode)
 byte numberBits[] = {
@@ -36,7 +36,8 @@ byte numberBits[] = {
   B11011010,  // 2
   B11110010,  // 3
   B01100110,  // 4
-  B10110110   // 5
+  B10110110,   // 5
+  B00000010
 };
 
 
@@ -63,7 +64,14 @@ void openthewindow(){
         
 }
 }
+void x(){
+  byte pattern = numberBits[5];
+  for (int i = 0; i < 8; i++) {
+    digitalWrite(segPins[i], bitRead(pattern,7-i));
+  }
+}
 void setup() { 
+  pinMode(4, INPUT); 
   for (int i = 0; i < 8; i++) {
     pinMode(segPins[i], OUTPUT);
   }
@@ -78,7 +86,7 @@ void setup() {
   WiFi.begin(ssid, password);               //เชื่อมต่อ wifi
   while (WiFi.status() != WL_CONNECTED)     //รอจนกว่าจะเชื่อมต่อwifiสำเร็จ
   { 
-    digitalWrite(PIN_LED , HIGH);
+    x();
     delay(500);
     Serial.println("Connecting to WiFi...");
   }
@@ -175,8 +183,14 @@ void sevensegment(int num){
 }
 void loop() {
     client.loop();
+    digitalWrite(2,HIGH);
+   
     
-    int rainsensorValue = analogRead(RAINSENSOR_PIN);
+    int rainsensorValue = analogRead(35);
+    if(rainsensorValue < 3000){
+      rainsensorValue = 0;
+    }
+
     float humidityPercent = readHumidity();  // อ่านค่าความชื้นแบบละเอียด
     int humidity_level;
     Serial.print("Humidity: ");
@@ -184,7 +198,13 @@ void loop() {
     Serial.println("%");
 
     Serial.print("Rain Sensor: ");
-    Serial.println(rainsensorValue != LOW ? "non water detected" : "water detected");
+    
+    if( rainsensorValue ==  0){
+      Serial.println("Water detected");
+    }
+    else{
+      Serial.println("non detected");
+    }
    
     if (humidityPercent < 20){
     humidity_level = 1;
@@ -202,11 +222,11 @@ else {
     humidity_level = 5;
 }
 sevensegment(humidity_level-1);
-if ((rainsensorValue == LOW) && (humidity_level>=4)) {
+if ((rainsensorValue == 0) && (humidity_level>4)) {
       client.publish(topic_rain,"Raining");
       Serial.println("Raining");
     }
- else if ((rainsensorValue != LOW ) || (humidity_level<4)){ //display on node-red for raining status
+ else if ((rainsensorValue != 0 ) || (humidity_level<=4)){ //display on node-red for raining status
      client.publish(topic_rain,"Not Raining");
      Serial.println("Not Raining");
     }
@@ -214,7 +234,7 @@ if ((rainsensorValue == LOW) && (humidity_level>=4)) {
 
     client.publish(topic_humidity,String(humidity_level).c_str()); //แสดงระดับความชื้น บน nodeRed
     // เงื่อนไขเปิดหน้าต่าง: ความชื้น > 80% และไม่มีฝนตก
-    if ((humidity_level>4) && (rainsensorValue == LOW) && (openwindow) &&(mode)) {
+    if ((humidity_level>4) && (rainsensorValue == 0) && (openwindow) &&(mode)) {
         for (int pos = 0; pos <= 70; pos += 2) {  // ขยับทีละ 2° ให้การเคลื่อนที่ราบรื่นขึ้น
             myServo.write(pos);
             Serial.print("Moving to: ");
